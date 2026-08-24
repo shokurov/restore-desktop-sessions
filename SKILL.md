@@ -1,19 +1,22 @@
 ---
 name: restore-desktop-sessions
-description: Restore ALL Claude Code desktop sessions on this machine into the currently logged-in Claude account. The desktop "Code" Recents list is scoped per Anthropic account, so logging in with a new id hides sessions made under an old id. This copies every account's session pointer files into the current account's active workspace so the full history lists again. Works on macOS and Windows. Trigger when the user says "restore sessions", "my old sessions are missing after login", "sessions not showing in Claude desktop", "bring back my sessions", "restore every session to new id", or types /restore-desktop-sessions.
+description: Restore ALL Claude Code desktop sessions on this machine into the workspace the desktop app is currently showing. The desktop "Code" Recents list is scoped per Anthropic account AND per organization, so logging in with a new id — or just switching org — hides the sessions made under the previous one. This copies every other account+workspace's session pointer files into the current one so the full history lists again. Works on macOS and Windows. Trigger when the user says "restore sessions", "my old sessions are missing after login", "sessions disappeared after switching organization", "sessions not showing in Claude desktop", "bring back my sessions", "restore every session to new id", or types /restore-desktop-sessions.
 metadata:
   type: reference
 ---
 
 # restore-desktop-sessions
 
-Makes every Claude Code desktop session ever created on this machine appear under
-the **currently logged-in** account.
+Makes every Claude Code desktop session ever created on this machine appear in the
+**workspace the desktop app is currently showing**.
 
 ## When to use
-User logged into the Claude desktop app with a different Claude id and their old
-Claude Code sessions vanished from the **Code → Recents** list. Use this to merge
-all accounts' sessions into the current one.
+The user's Claude Code sessions vanished from the **Code → Recents** list after they
+logged in with a different Claude id **or switched organization** under the same id.
+Use this to merge every account+workspace's sessions into the one on screen.
+
+Note both causes: an org switch empties the list exactly like an account switch, and
+users usually describe either one as "another account".
 
 ## How it works (mechanism)
 Claude desktop stores each Code session as a thin **pointer file**:
@@ -21,20 +24,22 @@ Claude desktop stores each Code session as a thin **pointer file**:
 - **macOS:** `~/Library/Application Support/Claude/claude-code-sessions/<accountUuid>/<workspaceUuid>/local_<uuid>.json`
 - **Windows:** `%APPDATA%\Claude\claude-code-sessions\<accountUuid>\<workspaceUuid>\local_<uuid>.json`
 
-Each pointer holds `cliSessionId`, `cwd`, `title`, `model`, timestamps — and
-references the real transcript in `~/.claude/projects/`. The Recents list is built
-by enumerating pointer files under **the current account's active workspace only**
-(it is NOT stored in the `claude.ai` IndexedDB/LevelDB — that scan comes up empty).
+`<workspaceUuid>` is **one dir per organization** the account belongs to. Each pointer
+holds `cliSessionId`, `cwd`, `title`, `model`, timestamps — and references the real
+transcript in `~/.claude/projects/`. The Recents list is built by enumerating pointer
+files in **exactly one dir** — the current account's currently-selected workspace (it is
+NOT stored in the `claude.ai` IndexedDB/LevelDB — that scan comes up empty).
 
-So: sessions made under account A are invisible while logged in as account B,
-because their pointer files sit in `.../A/...` not `.../B/...`. The fix is to copy
-the pointer files into the current account's active workspace dir. The transcripts
-themselves are account-agnostic on disk, so resume still works.
+So a session is invisible whenever its pointer sits in a different account dir **or a
+different workspace dir**. The fix is to copy those pointers into the dir the app is
+showing. The transcripts themselves are account-agnostic on disk, so resume still works.
 
 Current account = `lastKnownAccountUuid` in the app's `config.json`
 (macOS: `~/Library/Application Support/Claude/config.json`;
 Windows: `%APPDATA%\Claude\config.json`).
-Active workspace = the workspace dir under that account holding the newest pointer.
+Target workspace = the workspace dir under that account holding the newest pointer
+(opening or focusing a session rewrites its pointer, so this normally *is* the one on
+screen). Only `local_*.json` is copied — `deleted_*` tombstones stay put.
 
 ## Steps
 1. **Prereq:** user is logged into the desktop app as the target id, and has opened
@@ -54,17 +59,24 @@ Active workspace = the workspace dir under that account holding the newest point
      ```
    Report "N new sessions to restore" to the user.
 
+   The dry-run also lists **every workspace of the current account** with its session
+   count and marks (`->`) the one it will copy into. If the user says the app is showing
+   a different org, or the marked workspace holds far fewer sessions than they expect,
+   rerun with `--workspace` / `-Workspace` for the right uuid.
+
 3. **Apply** (backs up the current account dir first, then copies):
    - **macOS:**
      ```bash
      bash ~/.claude/skills/restore-desktop-sessions/restore.sh --apply
      ```
-     Optional `--account <uuid>` forces a target account instead of the logged-in one.
+     Optional `--account <uuid>` / `--workspace <uuid>` force the target account /
+     workspace instead of the logged-in + newest-pointer defaults.
    - **Windows:**
      ```powershell
      pwsh ~/.claude/skills/restore-desktop-sessions/restore.ps1 -Apply
      ```
-     Optional `-Account <uuid>` forces a target account instead of the logged-in one.
+     Optional `-Account <uuid>` / `-Workspace <uuid>` force the target account /
+     workspace instead of the logged-in + newest-pointer defaults.
 
 4. **Tell the user to fully quit + reopen** the app — the list is cached in memory:
    - **macOS:** **Cmd+Q** (not just closing the window; the red dot only hides it).
@@ -80,7 +92,7 @@ Active workspace = the workspace dir under that account holding the newest point
    You cannot quit the app yourself (controlling Claude's own window is blocked).
 
 ## Safety / reversibility
-- Non-destructive: other accounts' originals are never modified; copies use
+- Non-destructive: the source dirs are never modified; copies use
   `cp -n` (macOS) / a copy that skips existing filenames (Windows) — never overwrite.
 - The current account's dir is backed up to
   `~/.claude/desktop-session-backup-<timestamp>/current-account-before` before any copy.
@@ -95,3 +107,7 @@ Active workspace = the workspace dir under that account holding the newest point
 - **Windows:** `restore.ps1`, PowerShell 5.1+ / PowerShell 7+ compatible; no
   external dependencies (uses the built-in `ConvertFrom-Json`).
 - Dedups by pointer filename, so re-running is idempotent (only new sessions copied).
+- Merging is one-way into the target workspace — switching org afterwards shows that
+  org's own list again; rerun the tool there if the merge should follow.
+- Tests: `bash tests/test-restore.sh` / `pwsh tests/test-restore.ps1` build a synthetic
+  store in a temp dir (APPDATA/HOME overridden), so real data is never touched.
