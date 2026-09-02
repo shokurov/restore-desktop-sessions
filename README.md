@@ -70,14 +70,14 @@ focusing a session rewrites its pointer). If it guessed wrong, pass
 
 **macOS:**
 ```bash
-git clone https://github.com/arunmauryaaa/restore-desktop-sessions.git
+git clone https://github.com/upbonus-io/restore-desktop-sessions.git
 cd restore-desktop-sessions
 ./install.sh          # symlinks the skill into ~/.claude/skills/
 ```
 
 **Windows (PowerShell):**
 ```powershell
-git clone https://github.com/arunmauryaaa/restore-desktop-sessions.git
+git clone https://github.com/upbonus-io/restore-desktop-sessions.git
 cd restore-desktop-sessions
 .\install.ps1          # links the skill into ~/.claude/skills/ (directory junction)
 ```
@@ -88,7 +88,7 @@ Then in Claude Code just say **"restore sessions"** or type `/restore-desktop-se
 
 **macOS:**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/arunmauryaaa/restore-desktop-sessions/main/restore.sh -o restore.sh
+curl -fsSL https://raw.githubusercontent.com/upbonus-io/restore-desktop-sessions/main/restore.sh -o restore.sh
 chmod +x restore.sh
 ./restore.sh           # dry-run
 ```
@@ -96,7 +96,7 @@ Requires [`jq`](https://jqlang.github.io/jq/) (`brew install jq`).
 
 **Windows (PowerShell):**
 ```powershell
-curl.exe -fsSL https://raw.githubusercontent.com/arunmauryaaa/restore-desktop-sessions/main/restore.ps1 -o restore.ps1
+curl.exe -fsSL https://raw.githubusercontent.com/upbonus-io/restore-desktop-sessions/main/restore.ps1 -o restore.ps1
 .\restore.ps1           # dry-run
 ```
 No extra dependencies — uses PowerShell's built-in JSON support.
@@ -209,6 +209,15 @@ file reads + copies, and prints a dry-run of exactly what it will do before you 
 Unofficial. Not affiliated with Anthropic. It relies on the desktop app's on-disk
 session layout, which Anthropic may change in a future release. Always keep the printed
 backup until you've confirmed your sessions are back.
+
+## Origin
+
+Originally written by [@arunmauryaaa](https://github.com/arunmauryaaa) as a macOS-only
+bash script. This repository is a maintained continuation: it adds Windows support, fixes
+restoring across **organizations** (not just accounts), and adds a test suite. The changes
+are offered back upstream in
+[arunmauryaaa/restore-desktop-sessions#1](https://github.com/arunmauryaaa/restore-desktop-sessions/pull/1).
+Same MIT license as the original.
 
 ## License
 
