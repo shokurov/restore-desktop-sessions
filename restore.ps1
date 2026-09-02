@@ -1,22 +1,30 @@
 #!/usr/bin/env pwsh
 # restore-desktop-sessions (Windows)
-# Make ALL Claude Code desktop sessions ever created on this device appear under
-# the CURRENTLY logged-in account (any new Claude id).
+# Make ALL Claude Code desktop sessions ever created on this device appear in the
+# desktop app's Code -> Recents list as it is scoped right now.
 #
-# Why needed: the Claude desktop "Code" Recents list is scoped per Anthropic
-# account. Sessions are stored as thin pointer files:
+# Why needed: the Recents list is built from exactly ONE directory - the current
+# account's currently-selected workspace (there is one workspace dir per
+# organization you belong to). Sessions are stored as thin pointer files:
 #   %APPDATA%\Claude\claude-code-sessions\<accountUuid>\<workspaceUuid>\local_<uuid>.json
-# each pointing at a CLI transcript in ~/.claude/projects/. Switching login hides
-# sessions made under the old account. This script copies every account's pointer
-# files into the current account's active workspace so they all list again.
+# each pointing at a CLI transcript in ~/.claude/projects/. Sessions therefore
+# disappear from the list both when you log in with a different Claude id AND when
+# you switch organization/workspace under the same id. This script copies the
+# pointer files from every OTHER account+workspace dir into the target one.
 #
-# Non-destructive: originals under other accounts are untouched; the current
-# account's dir is backed up first. Reversible via the printed backup path.
+# Non-destructive: source dirs are never modified; the current account's dir is
+# backed up first. Reversible via the printed backup path.
 #
 # Usage:
-#   restore.ps1                        # dry-run: show what would be copied
-#   restore.ps1 -Apply                 # perform the copy (after backup)
-#   restore.ps1 -Apply -Account <uuid> # force target account (default = logged-in)
+#   restore.ps1                          # dry-run: show what would be copied
+#   restore.ps1 -Apply                   # perform the copy (after backup)
+#   restore.ps1 -Apply -Account <uuid>   # force target account (default = logged-in)
+#   restore.ps1 -Apply -Workspace <uuid> # force target workspace (default = newest)
+#
+# The default target workspace is the one holding the newest pointer file. When the
+# current account has more than one workspace they are ALL listed - check that the
+# marked one is the workspace the app is actually showing you, and pass -Workspace
+# if it is not.
 #
 # After -Apply: FULLY QUIT Claude (it's a background app even after the window
 # closes — see the printed instructions) and reopen it; the Recents list is
@@ -28,7 +36,8 @@
 [CmdletBinding()]
 param(
     [switch]$Apply,
-    [string]$Account
+    [string]$Account,
+    [string]$Workspace
 )
 
 $ErrorActionPreference = "Stop"
@@ -62,31 +71,68 @@ if (-not (Test-Path -LiteralPath $CurDir)) {
     Write-Error "current account '$Cur' has no session dir yet.`nOpen the desktop app -> Code tab once (start any session), then rerun."
 }
 
-# --- pick active workspace under current account = dir with newest pointer file ---
-$TargetWs = $null
-$bestMtime = -1
+# --- workspaces under the current account (one dir per organization) ---
+$candidates = New-Object System.Collections.Generic.List[object]
 foreach ($ws in Get-ChildItem -LiteralPath $CurDir -Directory -ErrorAction SilentlyContinue) {
-    $m = 0
-    foreach ($pf in Get-ChildItem -LiteralPath $ws.FullName -Filter "local_*.json" -File -ErrorAction SilentlyContinue) {
-        $t = [DateTimeOffset]::new($pf.LastWriteTimeUtc, [TimeSpan]::Zero).ToUnixTimeSeconds()
-        if ($t -gt $m) { $m = $t }
+    $pointers = @(Get-ChildItem -LiteralPath $ws.FullName -Filter "local_*.json" -File -ErrorAction SilentlyContinue)
+    $newest = [datetime]::MinValue
+    foreach ($pf in $pointers) {
+        if ($pf.LastWriteTimeUtc -gt $newest) { $newest = $pf.LastWriteTimeUtc }
     }
-    if ($m -gt $bestMtime) {
-        $bestMtime = $m
-        $TargetWs = $ws.FullName
-    }
+    $candidates.Add([PSCustomObject]@{
+        Name   = $ws.Name
+        Path   = $ws.FullName
+        Count  = $pointers.Count
+        Newest = $newest
+    })
 }
 
-if (-not $TargetWs -or -not (Test-Path -LiteralPath $TargetWs)) {
+if ($candidates.Count -eq 0) {
     Write-Error "current account has no workspace dir.`nOpen the desktop app -> Code tab once, then rerun."
 }
 
+$ranked = @($candidates | Sort-Object -Property Newest -Descending)
+
+# --- pick the target workspace ---
+if ($Workspace) {
+    $target = $ranked | Where-Object { $_.Name -eq $Workspace } | Select-Object -First 1
+    if (-not $target) {
+        $known = ($ranked | ForEach-Object { $_.Name }) -join ", "
+        Write-Error "workspace '$Workspace' not found under account '$Cur'.`nKnown workspaces: $known"
+    }
+} else {
+    # Default: the workspace holding the newest pointer file. Opening or focusing a
+    # session rewrites its pointer, so this is normally the workspace the app shows.
+    $target = $ranked[0]
+}
+$TargetWs = $target.Path
+
 Write-Output "Current account : $Cur"
-Write-Output "Active workspace: $(Split-Path $TargetWs -Leaf)"
+Write-Output "Target workspace: $($target.Name)"
 Write-Output "Store           : $Store"
 Write-Output ""
 
-# --- build list of source pointer files from OTHER accounts, dedup by filename ---
+# --- list every workspace of this account so a wrong pick is obvious ---
+Write-Output "Workspaces under this account (one per organization):"
+foreach ($c in $ranked) {
+    if ($c.Path -eq $TargetWs) { $mark = "->" } else { $mark = "  " }
+    if ($c.Newest -eq [datetime]::MinValue) {
+        $when = "(no sessions)"
+    } else {
+        $when = "newest " + $c.Newest.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
+    }
+    Write-Output ("  {0} {1}  {2,4} session(s)  {3}" -f $mark, $c.Name, $c.Count, $when)
+}
+if ($ranked.Count -gt 1) {
+    Write-Output ""
+    Write-Output "If '->' is not the workspace the app is showing you, rerun with -Workspace <uuid>."
+}
+Write-Output ""
+
+# --- collect source pointers from every OTHER workspace, dedup by filename ---
+# "Other" = every <account>\<workspace> dir except the target one, INCLUDING other
+# workspaces of the current account: switching organization hides sessions exactly
+# the way switching account does.
 $targetNames = @{}
 foreach ($f in Get-ChildItem -LiteralPath $TargetWs -Filter "local_*.json" -File -ErrorAction SilentlyContinue) {
     $targetNames[$f.Name] = $true
@@ -98,9 +144,9 @@ $srcFiles = New-Object System.Collections.Generic.List[string]
 $totalSrc = 0
 $skipCount = 0
 
-$otherAccountDirs = Get-ChildItem -LiteralPath $Store -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -ne $Cur }
-foreach ($acctDir in $otherAccountDirs) {
+foreach ($acctDir in Get-ChildItem -LiteralPath $Store -Directory -ErrorAction SilentlyContinue) {
     foreach ($wsDir in Get-ChildItem -LiteralPath $acctDir.FullName -Directory -ErrorAction SilentlyContinue) {
+        if ($wsDir.FullName -eq $TargetWs) { continue }
         foreach ($f in Get-ChildItem -LiteralPath $wsDir.FullName -Filter "local_*.json" -File -ErrorAction SilentlyContinue) {
             $totalSrc++
             $b = $f.Name
@@ -115,13 +161,13 @@ foreach ($acctDir in $otherAccountDirs) {
 }
 $copyCount = $srcFiles.Count
 
-Write-Output "Sessions in other accounts : $totalSrc"
-Write-Output "Already present in target  : $skipCount"
-Write-Output "New sessions to restore    : $copyCount"
+Write-Output "Sessions in other workspaces : $totalSrc"
+Write-Output "Already present in target    : $skipCount"
+Write-Output "New sessions to restore      : $copyCount"
 
 if (-not $Apply) {
     Write-Output ""
-    Write-Output "DRY-RUN. Re-run with -Apply to copy the $copyCount new session(s) into the current account."
+    Write-Output "DRY-RUN. Re-run with -Apply to copy the $copyCount new session(s) into the target workspace."
     exit 0
 }
 
@@ -145,7 +191,7 @@ foreach ($f in $srcFiles) {
 }
 
 Write-Output "Copied $n new session pointer(s)."
-$finalCount = (Get-ChildItem -LiteralPath $TargetWs -Filter "local_*.json" -File -ErrorAction SilentlyContinue).Count
+$finalCount = @(Get-ChildItem -LiteralPath $TargetWs -Filter "local_*.json" -File -ErrorAction SilentlyContinue).Count
 Write-Output "Target now holds: $finalCount sessions."
 Write-Output ""
 Write-Output "NEXT: FULLY QUIT Claude and reopen -> Code tab. Closing the window is not"
