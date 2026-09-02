@@ -64,6 +64,26 @@ The script prints every workspace of the current account and marks the one it pi
 focusing a session rewrites its pointer). If it guessed wrong, pass
 `--workspace <uuid>` / `-Workspace <uuid>`.
 
+## Do I still need this, now that `/resume` exists?
+
+The desktop app can now resume terminal sessions — type `/resume` and pick any session you
+started from the CLI. That solves *opening* a session, but it enumerates the transcripts in
+`~/.claude/projects`, and those get pruned over time while the pointer files stay behind.
+
+On the machine this fix came from: of 206 sessions filed under other accounts/orgs, only
+**78 still had a local transcript**. The other 128 — everything older than roughly the last
+few weeks — cannot be offered by `/resume` at all, though their pointers are still there.
+
+The two cover different halves:
+
+- **`/resume`** — reach one session you can pick out of a list, including CLI sessions that
+  were never in any sidebar.
+- **this tool** — get the *browsable history* back in Code → Recents, with titles, projects
+  and dates, including entries whose transcript is already gone.
+
+Entries whose local transcript has been pruned will appear in the list but may not open
+locally.
+
 ## Install
 
 ### As a Claude Code skill (recommended)

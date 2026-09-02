@@ -91,6 +91,14 @@ screen). Only `local_*.json` is copied — `deleted_*` tombstones stay put.
 
    You cannot quit the app yourself (controlling Claude's own window is blocked).
 
+## Relation to the app's `/resume`
+The desktop app can now resume CLI-started sessions via `/resume`. It enumerates
+transcripts in `~/.claude/projects`, which are pruned over time, while pointer files
+persist — so `/resume` reaches only the recent subset (78 of 206 on the machine this
+was developed against). Use `/resume` to open one known session; use this skill to get
+the browsable Recents list back. Pointers whose transcript is gone will list but may
+not open locally.
+
 ## Safety / reversibility
 - Non-destructive: the source dirs are never modified; copies use
   `cp -n` (macOS) / a copy that skips existing filenames (Windows) — never overwrite.
