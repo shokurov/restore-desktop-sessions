@@ -38,3 +38,6 @@ Nothing is tagged yet, so everything below is unreleased.
   workspace", "Sessions in other workspaces" instead of "Sessions in other accounts".
 - README and SKILL.md describe the per-organization scoping, the new flag, and the fact
   that `deleted_*` tombstones are never copied back.
+- The project moved to `upbonus-io/restore-desktop-sessions`. Clone and `curl` URLs in the
+  README point there now; the old location redirects. A new "Origin" section credits the
+  original author and links the upstream pull request.
